@@ -17,7 +17,7 @@ render distance 6, Fast, unlimited FPS). "all" means both phases combined, weigh
   vblank_mode=0, openbox.
 - Suite variables tested in v1: glthread, MESA_NO_ERROR, powersave governor, GPU min=max,
   SNA driver, ParallelGC, no WM. Separate reboots test mitigations ON and kernel 7.2.
-- ISO SHA256: `4e95a7d6d0c3d1e92fde41502fd30c66c462728fe8390a71afaf956c9b959c1c` (git tag `v1`).
+- ISO SHA256: `4e95a7d6d0c3d1e92fde41502fd30c66c462728fe8390a71afaf956c9b959c1c` (source: commit `cabdfa6`).
 - Verified in VMs (QEMU, SeaBIOS + OVMF/UEFI):
   - boots to first-time setup
   - data partition grows to fill the stick
