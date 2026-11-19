@@ -1,0 +1,12 @@
+#!/bin/bash
+# Extracts worlds from the newest backup into the MinecraftOS game folder (never overwrites).
+. /usr/local/lib/mcos/common.sh
+b=$(ls -t $DATA/backup/saves-*.tar.gz 2>/dev/null | head -1)
+[ -n "$b" ] || die "No backup found. Use 'Back up saves' first."
+dst=$PRISM_DIR/instances/$INSTANCE/minecraft/saves; mkdir -p "$dst"
+tmp=$(mktemp -d); tar -C "$tmp" -xzf "$b" saves
+for w in "$tmp"/saves/*/; do
+  n=$(basename "$w"); t="$dst/$n"; [ -e "$t" ] && t="$dst/$n (imported $(date +%F))"
+  mv "$w" "$t" && echo "Imported world: $(basename "$t")"
+done
+rm -rf "$tmp"

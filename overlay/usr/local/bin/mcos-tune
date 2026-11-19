@@ -1,0 +1,88 @@
+#!/bin/bash
+# MinecraftOS runtime performance knobs.
+#   mcos-tune boot                       apply defaults / kernel cmdline mcos.* options (at boot)
+#   mcos-tune set gov=X gpumin=X xdriver=X   change knobs now (used by the benchmark suite)
+#   mcos-tune show                       print the current state (goes into results files)
+# Knobs:
+#   gov      CPU governor: performance (v1 default) | powersave | schedutil | ondemand
+#   gpumin   i915 minimum GPU clock: default | max (pin GPU at its max clock; more heat)
+#   xdriver  Xorg driver: modesetting (v1 default, glamor) | intel (xf86-video-intel, SNA)
+. /usr/local/lib/mcos/common.sh
+[ "$(id -u)" = 0 ] || exec sudo "$0" "$@"
+
+set_gov() {
+  for g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+    echo "$1" > "$g" 2>/dev/null || echo "governor $1 not available ($(cat ${g%/*}/scaling_available_governors))" >&2
+  done
+  # intel_pstate: also prefer performance energy policy when available
+  for e in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do
+    [ -f "$e" ] && { [ "$1" = performance ] && echo performance > "$e" || echo balance_performance > "$e"; } 2>/dev/null
+  done
+}
+gpu_dir() { for d in /sys/class/drm/card*; do [ -f "$d/gt_min_freq_mhz" ] && { echo "$d"; return; }; done; }
+set_gpumin() {
+  local d; d=$(gpu_dir); [ -n "$d" ] || return
+  [ -f /run/mcos-gpu-min-orig ] || cat "$d/gt_min_freq_mhz" > /run/mcos-gpu-min-orig
+  if [ "$1" = max ]; then cat "$d/gt_RP0_freq_mhz" > "$d/gt_min_freq_mhz"
+  else cat /run/mcos-gpu-min-orig > "$d/gt_min_freq_mhz"; fi
+}
+set_xdriver() {
+  local drv=$1
+  [ "$drv" = intel ] && [ ! -f /usr/lib/xorg/modules/drivers/intel_drv.so ] && drv=modesetting
+  if [ "$drv" = intel ]; then
+    cat > /etc/X11/xorg.conf.d/20-gpu.conf <<X
+Section "Device"
+    Identifier "gpu"
+    Driver "intel"
+    Option "AccelMethod" "sna"
+    Option "TearFree" "false"
+    Option "DRI" "3"
+EndSection
+X
+  else
+    cat > /etc/X11/xorg.conf.d/20-gpu.conf <<X
+Section "Device"
+    Identifier "gpu"
+    Driver "modesetting"
+    Option "AccelMethod" "glamor"
+    Option "PageFlip" "on"
+EndSection
+X
+  fi
+  echo "$drv" > /run/mcos-xdriver
+}
+
+case "${1:-show}" in
+  boot)
+    set_gov "$(cmdline gov performance)"
+    set_gpumin "$(cmdline gpumin default)"
+    set_xdriver "$(cmdline xdriver modesetting)"
+    # fewer timer wakeups / background work while playing
+    echo 0 > /proc/sys/kernel/nmi_watchdog 2>/dev/null
+    echo 1500 > /proc/sys/vm/dirty_writeback_centisecs
+    # transparent hugepages for the Java heap only when asked (madvise = default-safe)
+    echo madvise > /sys/kernel/mm/transparent_hugepage/enabled 2>/dev/null
+    ;;
+  set)
+    shift
+    for kv in "$@"; do
+      case "$kv" in
+        gov=*) set_gov "${kv#gov=}" ;;
+        gpumin=*) set_gpumin "${kv#gpumin=}" ;;
+        xdriver=*) set_xdriver "${kv#xdriver=}" ;;
+        *) echo "unknown knob $kv" >&2 ;;
+      esac
+    done ;;
+  show)
+    echo "governor=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null)"
+    echo "cpufreq_driver=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_driver 2>/dev/null)"
+    echo "cpu_max_khz=$(cat /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq 2>/dev/null)"
+    d=$(gpu_dir)
+    [ -n "$d" ] && echo "gpu_min_max_rp0_mhz=$(cat $d/gt_min_freq_mhz)/$(cat $d/gt_max_freq_mhz)/$(cat $d/gt_RP0_freq_mhz)"
+    echo "xdriver=$(cat /run/mcos-xdriver 2>/dev/null)"
+    echo "zram=$(cat /sys/block/zram0/comp_algorithm 2>/dev/null | grep -o '\[[a-z0-9-]*\]') $(( $(cat /sys/block/zram0/disksize 2>/dev/null || echo 0) / 1048576 ))MiB"
+    echo "swappiness=$(cat /proc/sys/vm/swappiness)"
+    echo "thp=$(grep -o '\[[a-z]*\]' /sys/kernel/mm/transparent_hugepage/enabled)"
+    echo "mitigations=$(grep -o 'mitigations=[a-z,]*' /proc/cmdline || echo auto)"
+    ;;
+esac

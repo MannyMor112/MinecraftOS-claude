@@ -1,0 +1,17 @@
+#!/bin/bash
+# mcos-bench-summary <results dir> [first run number]  -> table: mean (min-max) per label
+dir=${1:-/data/results}; first=${2:-0}
+printf "%-11s %4s %16s %16s %16s %16s %9s %8s\n" label runs "avg_fps" "1%low_fps" "static_fps" "pan_fps" "maxtemp" "spk>50ms"
+for f in "$dir"/*-run[0-9][0-9][0-9]-*.txt; do
+  [ -f "$f" ] || continue
+  num=$(basename "$f" | sed -n 's/.*-run\([0-9]*\)-.*/\1/p'); [ $((10#$num)) -ge "$first" ] || continue
+  grep -q '^warmup_run=1' "$f" && continue
+  g() { sed -n "s/^$1=//p" "$f" | head -1; }
+  [ "$(g agent_status)" = ok ] || { echo "$(g label) FAILED $(basename "$f")" >&2; continue; }
+  echo "$(g label) $(g all_avg_fps) $(g all_1pct_low_fps) $(g static_avg_fps) $(g pan_avg_fps) $(g sys_temp_max_c_avg_min_max | cut -d/ -f3) $(g all_spikes_over_50ms)"
+done | awk '
+{ l=$1; n[l]++; if (!(l in ord)) { ord[l]=++k; lab[k]=l }
+  for (c=2;c<=7;c++) { s[l,c]+=$c; if (n[l]==1||$c<mn[l,c]) mn[l,c]=$c; if (n[l]==1||$c>mx[l,c]) mx[l,c]=$c } }
+END { for (i=1;i<=k;i++) { l=lab[i]; printf "%-11s %4d", l, n[l];
+  for (c=2;c<=5;c++) printf " %6.1f (%4.0f-%4.0f)", s[l,c]/n[l], mn[l,c], mx[l,c];
+  printf " %9.0f %8.1f\n", mx[l,6], s[l,7]/n[l] } }'

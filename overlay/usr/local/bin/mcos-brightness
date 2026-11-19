@@ -1,0 +1,9 @@
+#!/bin/bash
+# mcos-brightness up|down  (runs as root from the hotkey daemon)
+for b in /sys/class/backlight/*; do
+  [ -f "$b/max_brightness" ] || continue
+  max=$(cat "$b/max_brightness"); cur=$(cat "$b/brightness"); step=$(( max / 16 )); [ $step -lt 1 ] && step=1
+  case "$1" in up) new=$((cur + step));; down) new=$((cur - step));; *) exit 1;; esac
+  [ $new -gt $max ] && new=$max; [ $new -lt $step ] && new=$step   # never fully black
+  echo $new > "$b/brightness"; break
+done

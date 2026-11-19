@@ -1,0 +1,119 @@
+#!/bin/bash
+# One benchmark run.
+#   mcos-bench [--label NAME] [--knobs "gov=.. gpumin=.. xdriver=.."] [--glenv "K=V ..."]
+#              [--jvm "flags"] [--heap MB] [--wm openbox|none] [--warmup]
+# Result: /data/results/<run>.txt (+ <run>-frametimes.csv, <run>-sys.csv)
+. /usr/local/lib/mcos/common.sh
+. /etc/mcos/defaults.conf; [ -f /data/mcos.conf ] && . /data/mcos.conf
+LABEL=default KNOBS="" GLENV_EXTRA="" JVM_OVERRIDE="" HEAP_OVERRIDE="" WM_OVERRIDE="" WARMUP=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --label) LABEL=$2; shift ;;
+    --knobs) KNOBS=$2; shift ;;
+    --glenv) GLENV_EXTRA=$2; shift ;;
+    --jvm) JVM_OVERRIDE=$2; shift ;;
+    --heap) HEAP_OVERRIDE=$2; shift ;;
+    --wm) WM_OVERRIDE=$2; shift ;;
+    --warmup) WARMUP=1 ;;
+  esac; shift
+done
+[ -f "$DATA/.ram-only" ] && echo "WARNING: no USB data partition - results will be lost at power-off!"
+grep -qs '"type": *"MSA"' "$PRISM_DIR/accounts.json" || die "Sign in first (menu: Sign in)."
+[ -s "$PRISM_DIR/instances/$BENCH_INSTANCE/libraries/OptiFine-1.8.9_HD_U_M5.jar" ] || mcos-optifine || die "OptiFine missing"
+
+mkdir -p "$RESULTS/tmp"
+n=$(( $(cat "$RESULTS/.counter" 2>/dev/null || echo 0) + 1 )); echo $n > "$RESULTS/.counter"
+RUN=$(printf "%s-run%03d-%s" "$MCOS_VERSION" "$n" "$LABEL"); [ $WARMUP = 1 ] && RUN="$RUN-warmup"
+TMP=$RESULTS/tmp/$RUN; rm -rf "$TMP"; mkdir -p "$TMP"
+echo "=== Benchmark $RUN"
+
+# knobs for this run (restored to boot defaults afterwards)
+sudo mcos-tune boot >/dev/null
+[ -n "$KNOBS" ] && sudo mcos-tune set $KNOBS
+
+JF=${JVM_OVERRIDE:-$JVM_FLAGS}; HEAP=${HEAP_OVERRIDE:-$HEAP_MB}
+cat > "$TMP/bench.properties" <<P
+bench=true
+out=$TMP/agent.txt
+rawOut=$TMP/frametimes.csv
+world=mcos-bench
+seed=404
+x=0
+y=110
+z=0
+yaw=-45
+pitch=25
+loadSeconds=$([ $WARMUP = 1 ] && echo 90 || echo 30)
+staticSeconds=$([ $WARMUP = 1 ] && echo 10 || echo 60)
+panSeconds=$([ $WARMUP = 1 ] && echo 40 || echo 40)
+timeoutSeconds=900
+restoreOptions=false
+$(sed 's/^/opt./; s/:/=/' /usr/local/share/mcos/options-bench.txt)
+$(sed 's/^/of./; s/:/=/' /usr/local/share/mcos/optionsof-bench.txt)
+P
+cfg=$PRISM_DIR/instances/$BENCH_INSTANCE/instance.cfg
+sed -i "s|^JvmArgs=.*|JvmArgs=$JF -javaagent:$AGENT=$TMP/bench.properties|; s|^MinMemAlloc=.*|MinMemAlloc=$HEAP|; s|^MaxMemAlloc=.*|MaxMemAlloc=$HEAP|" "$cfg"
+mkdir -p /run/user/1000 2>/dev/null || true
+{ echo "GL_ENV=\"$GL_ENV $GLENV_EXTRA\""; [ -n "$WM_OVERRIDE" ] && echo "GAME_WM=$WM_OVERRIDE"; } > /run/user/1000/mcos-run.env
+
+# cool-down: start every run from a similar temperature (fanless device)
+t=$(for z in /sys/class/thermal/thermal_zone*/temp; do cat $z; done 2>/dev/null | sort -n | tail -1); t=$(( ${t:-0} / 1000 ))
+w=0; while [ "$t" -gt 55 ] && [ $w -lt 180 ]; do
+  printf "\rcooling down: %s C (waiting for <= 55 C)  " "$t"; sleep 5; w=$((w+5))
+  t=$(for z in /sys/class/thermal/thermal_zone*/temp; do cat $z; done 2>/dev/null | sort -n | tail -1); t=$(( ${t:-0} / 1000 ))
+done; echo
+START_TEMP=$t
+
+sudo /usr/local/lib/mcos/sampler.sh "$TMP/sys.csv" & SAMPLER=$!
+sync; echo 1 | sudo tee /proc/sys/vm/drop_caches >/dev/null   # same cold-ish start for every run (squashfs pages re-read)
+T_START=$(date +%s)
+timeout --foreground 1200 mcos-x bench "$TMP/glxinfo.txt" > "$TMP/session.log" 2>&1
+RC=$?
+sudo kill $SAMPLER 2>/dev/null; wait $SAMPLER 2>/dev/null
+rm -f /run/user/1000/mcos-run.env
+sed -i "s|^JvmArgs=.*|JvmArgs=$JVM_FLAGS|; s|^MinMemAlloc=.*|MinMemAlloc=$HEAP_MB|; s|^MaxMemAlloc=.*|MaxMemAlloc=$HEAP_MB|" "$cfg"
+
+OUTF=$RESULTS/$RUN.txt
+renderer=$(sed -n 's/.*OpenGL renderer string: //p' "$TMP/glxinfo.txt")
+{
+  echo "# MinecraftOS benchmark result"
+  echo "run=$RUN"
+  echo "label=$LABEL"
+  echo "warmup_run=$WARMUP"
+  echo "mcos_version=$MCOS_VERSION"
+  echo "date_local_clock=$(date -Is)"
+  echo "kernel=$(uname -r)"
+  echo "cmdline=$(cat /proc/cmdline)"
+  echo "cpu=$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | sed 's/^ //')"
+  echo "mem_total_mb=$(( $(awk '/MemTotal/{print $2}' /proc/meminfo) / 1024 ))"
+  echo "product=$(cat /sys/class/dmi/id/product_name 2>/dev/null) / $(cat /sys/class/dmi/id/bios_version 2>/dev/null)"
+  echo "gl_renderer=$renderer"
+  echo "gl_version=$(sed -n 's/.*OpenGL version string: //p' "$TMP/glxinfo.txt")"
+  case "$renderer" in *llvmpipe*|*softpipe*|*Software*|"") echo "WARNING=NO HARDWARE ACCELERATION - this run is invalid" ;; esac
+  echo "knobs=$KNOBS"
+  sudo mcos-tune show | sed 's/^/tune_/'
+  echo "gl_env=$GL_ENV $GLENV_EXTRA"
+  echo "game_wm=${WM_OVERRIDE:-$GAME_WM}"
+  echo "heap_mb=$HEAP"
+  echo "jvm_flags=$JF"
+  echo "start_temp_c=$START_TEMP"
+  echo "session_exit_code=$RC"
+  echo "wall_time_s=$(( $(date +%s) - T_START ))"
+  echo "## agent"
+  cat "$TMP/agent.txt" 2>/dev/null || echo "agent_status=missing (game did not start or crashed - see session log below)"
+  echo "## system (measured window)"
+  /usr/local/lib/mcos/report.sh "$TMP/agent.txt" "$TMP/sys.csv"
+  if ! grep -qs 'agent_status=ok' "$TMP/agent.txt"; then
+    echo "## session log (last 80 lines)"
+    tail -80 "$TMP/session.log"
+    echo "## game log (last 80 lines)"
+    tail -80 "$PRISM_DIR/instances/$BENCH_INSTANCE/minecraft/logs/latest.log" 2>/dev/null
+  fi
+} > "$OUTF"
+cp "$TMP/frametimes.csv" "$RESULTS/$RUN-frametimes.csv" 2>/dev/null
+cp "$TMP/sys.csv" "$RESULTS/$RUN-sys.csv" 2>/dev/null
+sync
+echo
+grep -E "^(gl_renderer|WARNING|agent_status|all_avg_fps|all_1pct_low_fps|static_avg_fps|pan_avg_fps|sys_temp_max|sys_throttle)" "$OUTF"
+echo "Saved: $OUTF"
+grep -qs 'agent_status=ok' "$TMP/agent.txt"

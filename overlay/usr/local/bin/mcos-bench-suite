@@ -1,0 +1,28 @@
+#!/bin/bash
+# Runs every variant of the suite file, interleaved (A B C .. A B C ..) so slow thermal drift
+# affects all variants equally, then writes a summary table.
+#   mcos-bench-suite [repeats=2] [suite file]
+. /usr/local/lib/mcos/common.sh
+REPEATS=${1:-2}; SUITE=${2:-/usr/local/share/mcos/suite-v1.txt}
+mapfile -t LINES < <(grep -vE '^\s*(#|$)' "$SUITE")
+nvar=${#LINES[@]}
+echo "Suite: $nvar variants x $REPEATS repeats = $((nvar*REPEATS)) runs (+1 warm-up). ~$(( (nvar*REPEATS+1)*4 )) minutes."
+echo "Plug in the charger, leave the laptop open on a hard surface, don't touch it."
+SID=$(date +%Y%m%d-%H%M%S)
+LIST=$RESULTS/suite-$SID-runs.txt; : > "$LIST"
+first=$(( $(cat "$RESULTS/.counter" 2>/dev/null || echo 0) + 1 ))
+mcos-bench --label warmup --warmup || echo "warm-up run failed - continuing"
+for r in $(seq 1 "$REPEATS"); do
+  for l in "${LINES[@]}"; do
+    IFS='|' read -r label knobs glenv jvm wm <<<"$l"
+    label=$(echo $label); knobs=$(echo $knobs); glenv=$(echo $glenv); jvm=$(echo $jvm); wm=$(echo $wm)
+    args=(--label "$label")
+    [ -n "$knobs" ] && args+=(--knobs "$knobs"); [ -n "$glenv" ] && args+=(--glenv "$glenv")
+    [ -n "$jvm" ] && args+=(--jvm "$jvm"); [ -n "$wm" ] && args+=(--wm "$wm")
+    echo; echo "##### repeat $r/$REPEATS variant $label"
+    mcos-bench "${args[@]}"; echo "$label $?" >> "$LIST"
+  done
+done
+mcos-bench-summary "$RESULTS" "$first" > "$RESULTS/suite-$SID-summary.txt"
+cat "$RESULTS/suite-$SID-summary.txt"
+echo "Summary saved: $RESULTS/suite-$SID-summary.txt"

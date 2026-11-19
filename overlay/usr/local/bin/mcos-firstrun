@@ -1,0 +1,31 @@
+#!/bin/bash
+# First-boot setup: Wi-Fi -> OptiFine download -> Microsoft sign-in.
+. /usr/local/lib/mcos/common.sh
+D() { dialog --backtitle "MinecraftOS $MCOS_VERSION - first-time setup" "$@"; }
+
+[ -f "$DATA/.ram-only" ] && D --msgbox "WARNING: the USB data partition was not found.\n\nEverything (login, game files, results) is kept in RAM only and is lost when you power off." 10 60
+
+D --msgbox "Welcome!\n\nThis one-time setup will:\n 1. connect to Wi-Fi\n 2. download OptiFine from optifine.net\n 3. let you sign in with your Microsoft account\n 4. download Minecraft 1.8.9 from Mojang (on first start)\n\nKeys: arrows + Enter, Tab to switch buttons." 15 64
+
+# 1. network
+while ! have_net; do
+  D --yesno "No internet connection.\n\nOpen the Wi-Fi menu now?\n(Choose 'Activate a connection', pick your network, type the password.)" 10 60 || break
+  nmtui connect
+  sleep 3
+done
+have_net || { D --msgbox "Still offline. You can retry from the menu (Connect to Wi-Fi)." 7 60; exit 0; }
+
+# 2. OptiFine
+clear
+mcos-optifine || pause "OptiFine install failed (see above). Press Enter..."
+
+# 3. Microsoft sign-in in Prism Launcher
+if ! grep -qs '"type": *"MSA"' "$PRISM_DIR/accounts.json"; then
+  D --msgbox "Next: Prism Launcher opens for the Microsoft sign-in.\n\n- Use the touchpad to click.\n- Click 'Add Microsoft account'. Prism shows a QR code and a short CODE.\n- Scan the QR with your phone (or open microsoft.com/link and type the code) and sign in there.\n- If Prism shows its main window instead: Accounts (top right) > Manage > Add Microsoft.\n- When your account appears, close Prism (X button top-right, or Ctrl+Q).\n\nThe game is then downloaded automatically the first time you press Play." 19 72
+  mcos-x launcher > /tmp/prism-login.log 2>&1
+fi
+if grep -qs '"type": *"MSA"' "$PRISM_DIR/accounts.json"; then
+  D --msgbox "Signed in. Setup complete!" 6 40
+else
+  D --msgbox "No Microsoft account found yet. Use 'Sign in / launcher' in the menu to try again." 7 60
+fi

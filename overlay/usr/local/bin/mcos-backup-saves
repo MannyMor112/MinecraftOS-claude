@@ -1,0 +1,27 @@
+#!/bin/bash
+# Copies ~/.minecraft/saves (and options/screenshots) from the internal drive's Linux install
+# to the USB stick (/data/backup). The internal drive is mounted READ-ONLY - nothing is changed.
+. /usr/local/lib/mcos/common.sh
+[ "$(id -u)" = 0 ] || exec sudo "$0" "$@"
+usb=$(lsblk -no PKNAME "$(blkid -L MCOSDATA 2>/dev/null)" 2>/dev/null)
+mnt=/mnt/internal; mkdir -p $mnt
+found=0
+for p in $(lsblk -lnpo NAME,FSTYPE | awk '$2 ~ /ext4|ext3|btrfs|xfs/ {print $1}'); do
+  [ -n "$usb" ] && [ "$(lsblk -no PKNAME $p)" = "$usb" ] && continue
+  mount -o ro "$p" $mnt 2>/dev/null || mount -o ro,norecovery "$p" $mnt 2>/dev/null || continue
+  for mc in $mnt/home/*/.minecraft $mnt/*/.minecraft $mnt/root/.minecraft; do
+    [ -d "$mc/saves" ] || continue
+    found=1
+    user=$(basename "$(dirname "$mc")")
+    out=$DATA/backup/saves-$user-$(date +%Y%m%d-%H%M%S).tar.gz
+    echo "Found $mc on $p ($(du -sh "$mc/saves" | cut -f1) of saves):"
+    ls -1 "$mc/saves" | sed 's/^/   /'
+    tar -C "$mc" -czf "$out" saves $(cd "$mc" && ls -d options.txt optionsof.txt screenshots servers.dat 2>/dev/null)
+    chown 1000:1000 "$out"
+    echo "Backed up to $out ($(du -h "$out" | cut -f1))"
+    tar -tzf "$out" >/dev/null && echo "Verified: archive is readable."
+  done
+  umount $mnt
+done
+[ $found = 0 ] && echo "No .minecraft/saves folder found on the internal drive (is it encrypted?)."
+echo "Backups on the USB stick: $(ls $DATA/backup 2>/dev/null | wc -l) file(s) in /data/backup"

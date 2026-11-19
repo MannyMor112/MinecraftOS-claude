@@ -1,0 +1,8 @@
+# Installed with -t trixie-backports
+prismlauncher
+linux-image-amd64
+libgl1-mesa-dri
+libglx-mesa0
+libegl-mesa0
+libgbm1
+mesa-libgallium

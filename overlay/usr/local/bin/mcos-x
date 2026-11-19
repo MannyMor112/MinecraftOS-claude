@@ -1,0 +1,3 @@
+#!/bin/bash
+# Start an X server on this VT with the given MinecraftOS session (play|bench|launcher).
+exec xinit /usr/local/lib/mcos/xsession.sh "$@" -- /usr/bin/Xorg :0 vt$(fgconsole 2>/dev/null || echo 1) -keeptty -nolisten tcp -quiet -novtswitch -logfile /tmp/Xorg.0.log

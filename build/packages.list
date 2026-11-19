@@ -1,0 +1,71 @@
+# --- boot / base ---
+linux-image-amd64
+live-boot
+live-boot-initramfs-tools
+initramfs-tools
+systemd-sysv
+libpam-systemd
+udev
+kmod
+dbus
+procps
+util-linux
+e2fsprogs
+dosfstools
+parted
+fdisk
+cloud-guest-utils
+rsync
+curl
+ca-certificates
+less
+pciutils
+dialog
+kbd
+# --- installer (writes GRUB to internal disk) ---
+grub-pc-bin
+grub-efi-amd64-bin
+grub-common
+grub2-common
+# --- firmware (all redistributable, Debian non-free-firmware) ---
+firmware-iwlwifi
+firmware-atheros
+firmware-realtek
+firmware-brcm80211
+firmware-misc-nonfree
+firmware-sof-signed
+firmware-intel-sound
+intel-microcode
+# --- network ---
+network-manager
+wpasupplicant
+iw
+rfkill
+# --- graphics: Xorg (LWJGL2 needs X11), Mesa ---
+xserver-xorg-core
+xserver-xorg-input-libinput
+xserver-xorg-video-intel
+xinit
+x11-xserver-utils
+xauth
+libgl1-mesa-dri
+libglx-mesa0
+libgl1
+mesa-utils
+libxxf86vm1
+libxrandr2
+libxcursor1
+libxtst6
+libxi6
+openbox
+fonts-dejavu-core
+# --- audio ---
+alsa-utils
+alsa-ucm-conf
+# --- tuning / measurement ---
+linux-cpupower
+intel-gpu-tools
+systemd-zram-generator
+triggerhappy
+# --- launcher: Prism Launcher (GPL-3, Microsoft login approved by Mojang) ---
+sudo

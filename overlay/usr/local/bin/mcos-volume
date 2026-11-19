@@ -1,0 +1,8 @@
+#!/bin/bash
+# mcos-volume up|down|mute
+card=$(cat /run/mcos-audio-card 2>/dev/null || echo 0)
+case "$1" in
+  up)   amixer -q -c "$card" sset 'MCOS Master' 6%+ unmute ;;
+  down) amixer -q -c "$card" sset 'MCOS Master' 6%- ;;
+  mute) amixer -q -c "$card" sset 'MCOS Master' toggle 2>/dev/null || amixer -q -c "$card" sset 'MCOS Master' 0% ;;
+esac

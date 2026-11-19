@@ -1,0 +1,13 @@
+#!/bin/bash
+# Start Minecraft 1.8.9 + OptiFine (fullscreen). Returns to the menu when the game exits.
+. /usr/local/lib/mcos/common.sh
+clear; echo "Starting Minecraft..."
+sudo mcos-tune boot >/dev/null
+mcos-x play > /tmp/mcos-play.log 2>&1
+rc=$?
+if [ $rc -ne 0 ]; then
+  clear; echo "The game/launcher exited with code $rc. Last lines of the log:"; echo
+  tail -25 /tmp/mcos-play.log
+  tail -15 "$PRISM_DIR/instances/$INSTANCE/minecraft/logs/latest.log" 2>/dev/null
+  pause
+fi

@@ -1,0 +1,79 @@
+#!/bin/bash
+# Installs MinecraftOS to an internal drive. ERASES THE WHOLE DRIVE.
+# Layout (GPT): 1 = BIOS boot (1 MiB, for SeaBIOS/legacy), 2 = EFI system (256 MiB), 3 = root ext4.
+# GRUB is installed for BOTH legacy BIOS and UEFI, so it boots with either firmware.
+set -uo pipefail
+. /usr/local/lib/mcos/common.sh
+[ "$(id -u)" = 0 ] || exec sudo "$0" "$@"
+MEDIUM=/run/live/medium
+LOWER=$(ls -d /run/live/rootfs/*.squashfs 2>/dev/null | head -1)
+[ -d "$MEDIUM/live" ] && [ -n "$LOWER" ] || die "Not running from the live USB."
+usb=$(lsblk -no PKNAME "$(findmnt -no SOURCE $MEDIUM)" 2>/dev/null)
+
+echo "Disks that can be used (the USB stick you booted from is excluded):"; echo
+mapfile -t DISKS < <(lsblk -dnpo NAME,TYPE | awk '$2=="disk"{print $1}' | grep -v -e zram -e "/dev/$usb\$" -e boot -e rpmb)
+[ ${#DISKS[@]} -gt 0 ] || die "No internal disk found."
+i=1; for d in "${DISKS[@]}"; do echo "  $i) $d  $(lsblk -dno SIZE,MODEL $d)"; lsblk -no NAME,SIZE,FSTYPE,LABEL $d | sed 's/^/        /'; i=$((i+1)); done
+echo; read -r -p "Number of the disk to ERASE and install to (Enter = cancel): " n
+[ -n "$n" ] && [ "$n" -ge 1 ] 2>/dev/null && [ "$n" -le ${#DISKS[@]} ] || { echo "Cancelled."; exit 0; }
+DISK=${DISKS[$((n-1))]}
+echo
+echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+echo "  WARNING: EVERYTHING on $DISK will be PERMANENTLY ERASED:"
+echo "  your Lubuntu installation, all files, and all Minecraft worlds on it."
+echo "  Back up your saves first (menu: Back up saves) - they go to the USB stick."
+echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+ls $DATA/backup/saves-*.tar.gz >/dev/null 2>&1 || echo "  (No save backup found on the USB stick yet!)"
+read -r -p "Type ERASE (capital letters) to continue: " ok
+[ "$ok" = ERASE ] || { echo "Cancelled. Nothing was changed."; exit 0; }
+read -r -p "Also copy your login, game files and settings from the USB stick? [Y/n] " copydata
+
+set -e
+p() { case "$DISK" in *mmcblk*|*nvme*|*loop*) echo "${DISK}p$1";; *) echo "${DISK}$1";; esac; }
+echo "== Partitioning $DISK"
+for m in $(lsblk -lnpo MOUNTPOINT "$DISK" | grep -v '^$'); do umount -l "$m" || true; done
+swapoff -a 2>/dev/null || true; swapon /dev/zram0 2>/dev/null || true
+wipefs -a "$DISK" >/dev/null
+sfdisk -q "$DISK" <<EOF
+label: gpt
+size=1MiB, type=21686148-6449-6E6F-744E-656564454649, name=bios
+size=256MiB, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, name=efi
+type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, name=minecraftos
+EOF
+partx -u "$DISK" 2>/dev/null || true; udevadm settle; sleep 1
+mkfs.vfat -F32 -n MCOSEFI "$(p 2)" >/dev/null
+# ext4 tuned for slow eMMC: no access-time writes (mount option), lazy init done now
+mkfs.ext4 -q -F -L MINECRAFTOS -E lazy_itable_init=0,lazy_journal_init=0 "$(p 3)"
+T=/mnt/target; mkdir -p $T
+mount -o noatime "$(p 3)" $T
+mkdir -p $T/boot/efi; mount "$(p 2)" $T/boot/efi
+
+echo "== Copying the system (a few minutes)"
+rsync -aHAX --info=progress2 "$LOWER/" $T/
+mkdir -p $T/boot
+kver=$(ls $T/lib/modules | sort -V)
+for k in $kver; do
+  [ -f "$MEDIUM/live/vmlinuz-$k" ] && cp "$MEDIUM/live/vmlinuz-$k" $T/boot/ && cp "$MEDIUM/live/initrd.img-$k" $T/boot/
+done
+[ -f "$MEDIUM/live/intel-ucode.img" ] && cp "$MEDIUM/live/intel-ucode.img" $T/boot/
+touch $T/etc/mcos-installed
+mkdir -p $T/data
+case "$copydata" in [nN]*) ;; *) echo "== Copying data from the USB stick"; rsync -aH --exclude results/tmp $DATA/ $T/data/ ;; esac
+chown 1000:1000 $T/data
+ROOTUUID=$(blkid -s UUID -o value "$(p 3)"); EFIUUID=$(blkid -s UUID -o value "$(p 2)")
+cat > $T/etc/fstab <<EOF
+UUID=$ROOTUUID  /          ext4  noatime,commit=60,errors=remount-ro  0 1
+UUID=$EFIUUID   /boot/efi  vfat  umask=0077,noauto,nofail             0 2
+EOF
+
+echo "== Installing GRUB (legacy BIOS + UEFI)"
+for m in dev dev/pts proc sys; do mount --bind /$m $T/$m; done
+chroot $T grub-install --target=i386-pc --recheck "$DISK"
+chroot $T grub-install --target=x86_64-efi --efi-directory=/boot/efi --boot-directory=/boot --removable --no-nvram
+# grub.cfg: same entries as the USB, but booting the installed root directly (no live system)
+sed -e "s|@ROOTUUID@|$ROOTUUID|g" /usr/local/share/mcos/grub-installed.cfg > $T/boot/grub/grub.cfg
+for m in sys proc dev/pts dev; do umount -l $T/$m; done
+sync; umount $T/boot/efi; umount $T
+echo
+echo "Installed. Remove the USB stick and reboot."
+echo "If the Chromebook does not boot from the internal drive: see RECOVERY.md."

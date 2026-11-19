@@ -1,0 +1,9 @@
+[Unit]
+Description=MinecraftOS hotkeys (brightness / volume on the Chromebook top row)
+After=systemd-udev-settle.service
+[Service]
+ExecStart=/usr/sbin/thd --triggers /etc/triggerhappy/triggers.d --deviceglob '/dev/input/event*'
+Restart=always
+Nice=5
+[Install]
+WantedBy=multi-user.target

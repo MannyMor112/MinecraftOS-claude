@@ -1,0 +1,10 @@
+# MinecraftOS v1 benchmark suite. One variable changes per variant vs. "base".
+# label | knobs (mcos-tune) | extra GL env | JVM flags override (empty = default) | wm override
+base      |                   |                     |  |
+glthread  |                   | mesa_glthread=true  |  |
+noerror   |                   | MESA_NO_ERROR=1     |  |
+powersave | gov=powersave     |                     |  |
+gpumax    | gpumin=max        |                     |  |
+sna       | xdriver=intel     |                     |  |
+parallel  |                   |                     | -XX:+UseParallelGC -XX:+DisableExplicitGC |
+nowm      |                   |                     |  | none

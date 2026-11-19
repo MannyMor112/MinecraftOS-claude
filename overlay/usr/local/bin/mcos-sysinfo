@@ -1,0 +1,30 @@
+#!/bin/bash
+# Hardware / driver report (menu: System info). Useful to send along with results.
+. /usr/local/lib/mcos/common.sh
+echo "MinecraftOS $MCOS_VERSION   kernel $(uname -r)"
+echo "cmdline: $(cat /proc/cmdline)"
+echo "firmware: $([ -d /sys/firmware/efi ] && echo UEFI || echo 'legacy BIOS (SeaBIOS)')   bios: $(cat /sys/class/dmi/id/bios_vendor /sys/class/dmi/id/bios_version 2>/dev/null | tr '\n' ' ')"
+echo "model: $(cat /sys/class/dmi/id/sys_vendor /sys/class/dmi/id/product_name /sys/class/dmi/id/product_version 2>/dev/null | tr '\n' ' ')"
+echo "cpu: $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2)"
+echo "memory: $(free -m | awk '/Mem/{print $2" MiB total, "$7" MiB available"}')   swap: $(free -m | awk '/Swap/{print $2" MiB"}')"
+echo; echo "== GPU"
+lspci -nnk 2>/dev/null | grep -A3 -i vga || grep -H . /sys/class/drm/card*/device/{vendor,device} 2>/dev/null
+d=$(ls -d /sys/class/drm/card*/gt_RP0_freq_mhz 2>/dev/null | head -1); [ -n "$d" ] && d=${d%/*} && echo "GPU clocks MHz: min $(cat $d/gt_min_freq_mhz) max $(cat $d/gt_max_freq_mhz) RP0 $(cat $d/gt_RP0_freq_mhz) RPn $(cat $d/gt_RPn_freq_mhz)"
+echo "(OpenGL renderer is recorded in every benchmark result; Mesa: $(dpkg-query -W -f='${Version}' libgl1-mesa-dri 2>/dev/null))"
+echo; echo "== CPU frequency"
+cat /sys/devices/system/cpu/cpu0/cpufreq/{scaling_driver,scaling_governor,cpuinfo_min_freq,cpuinfo_max_freq} 2>/dev/null | tr '\n' ' '; echo
+ls /sys/class/powercap 2>/dev/null | tr '\n' ' '; echo
+for z in /sys/class/powercap/intel-rapl:0/constraint_*_power_limit_uw; do [ -f "$z" ] && echo "RAPL $(cat ${z%_power_limit_uw}_name): $(( $(cat $z) / 1000 )) mW"; done 2>/dev/null
+echo; echo "== Temperatures"
+for z in /sys/class/thermal/thermal_zone*; do echo "$(cat $z/type): $(( $(cat $z/temp) / 1000 )) C"; done 2>/dev/null
+echo; echo "== Network"
+nmcli -t -f DEVICE,TYPE,STATE,CONNECTION device 2>/dev/null
+for n in /sys/class/net/*; do [ -e "$n/device/driver" ] && echo "$(basename $n): driver $(basename $(readlink $n/device/driver))"; done
+echo; echo "== Audio"
+cat /proc/asound/cards 2>/dev/null; echo "used card: $(cat /run/mcos-audio-card 2>/dev/null)"
+echo; echo "== Input devices"
+grep -E '^N: ' /proc/bus/input/devices | sed 's/N: Name=//'
+echo; echo "== Backlight"; ls /sys/class/backlight/ 2>/dev/null
+echo; echo "== Storage"; lsblk -o NAME,SIZE,TYPE,FSTYPE,LABEL,MOUNTPOINT,TRAN 2>/dev/null
+echo; echo "== Tuning"; sudo mcos-tune show
+echo; echo "== Kernel messages (warnings/errors)"; sudo dmesg --level=err,warn 2>/dev/null | tail -40

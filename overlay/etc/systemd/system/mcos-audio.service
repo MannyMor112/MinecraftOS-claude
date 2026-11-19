@@ -1,0 +1,9 @@
+[Unit]
+Description=MinecraftOS audio setup (ALSA UCM, software volume)
+After=sound.target systemd-udev-settle.service
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/lib/mcos/audio.sh
+[Install]
+WantedBy=multi-user.target

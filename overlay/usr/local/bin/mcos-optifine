@@ -1,0 +1,51 @@
+#!/bin/bash
+# Downloads OptiFine 1.8.9 HD U M5 from its official site (optifine.net - it may not be
+# redistributed, so it is never in the ISO), downloads the vanilla 1.8.9 client from
+# Mojang's official servers, and runs OptiFine's own Patcher to create the library jar
+# (the same thing OptiFine's installer does). Result goes into both Prism instances.
+set -euo pipefail
+. /usr/local/lib/mcos/common.sh
+OF_FILE=OptiFine_1.8.9_HD_U_M5.jar
+OF_SHA256=2739760a70fca6ae5c7dc817bcc6283f18f55e38fa23778da7f387a6b724b2c4
+C=$DATA/cache/optifine; mkdir -p "$C"
+done_all=1
+for i in "$INSTANCE" "$BENCH_INSTANCE"; do
+  [ -s "$PRISM_DIR/instances/$i/libraries/OptiFine-1.8.9_HD_U_M5.jar" ] || done_all=0
+done
+[ $done_all = 1 ] && [ "${1:-}" != --force ] && { echo "OptiFine already installed."; exit 0; }
+
+echo "== Downloading OptiFine from optifine.net"
+if [ ! -s "$C/$OF_FILE" ] || ! echo "$OF_SHA256  $C/$OF_FILE" | sha256sum -c --quiet - 2>/dev/null; then
+  page=$(curl -fsSL --retry 3 "https://optifine.net/adloadx?f=$OF_FILE")
+  link=$(grep -o "downloadx?f=$OF_FILE&x=[0-9a-f]*" <<<"$page" | head -1)
+  [ -n "$link" ] || die "could not find the download link on optifine.net (site changed?). Download $OF_FILE manually and put it in $C"
+  curl -fL --progress-bar --retry 3 -o "$C/$OF_FILE.part" "https://optifine.net/$link"
+  mv "$C/$OF_FILE.part" "$C/$OF_FILE"
+fi
+echo "$OF_SHA256  $C/$OF_FILE" | sha256sum -c - || die "OptiFine checksum mismatch - refusing to use it"
+
+echo "== Downloading Minecraft 1.8.9 client from Mojang (needed to build the OptiFine library)"
+if [ ! -s "$C/client-1.8.9.jar" ]; then
+  vurl=$(curl -fsSL https://piston-meta.mojang.com/mc/game/version_manifest_v2.json | tr -d '\n ' | grep -o '{"id":"1.8.9"[^}]*' | grep -o 'https://[^"]*')
+  vjson=$(curl -fsSL "$vurl" | tr -d '\n ')
+  curl_client=$(grep -o '"client":{[^}]*' <<<"$vjson")
+  sha1=$(grep -o '"sha1":"[0-9a-f]*' <<<"$curl_client" | cut -d'"' -f4)
+  url=$(grep -o 'https://[^"]*' <<<"$curl_client")
+  curl -fL --progress-bar --retry 3 -o "$C/client-1.8.9.jar.part" "$url"
+  echo "$sha1  $C/client-1.8.9.jar.part" | sha1sum -c - || die "client.jar checksum mismatch"
+  mv "$C/client-1.8.9.jar.part" "$C/client-1.8.9.jar"
+fi
+
+echo "== Patching (OptiFine's own optifine.Patcher)"
+tmp=$(mktemp -d)
+"$JAVA" -cp "$C/$OF_FILE" optifine.Patcher "$C/client-1.8.9.jar" "$C/$OF_FILE" "$tmp/OptiFine-1.8.9_HD_U_M5.jar" > "$tmp/patch.log" 2>&1 \
+  || { tail -20 "$tmp/patch.log"; die "OptiFine patcher failed"; }
+(cd "$tmp" && unzip -q -o "$C/$OF_FILE" launchwrapper-of-2.2.jar)
+for i in "$INSTANCE" "$BENCH_INSTANCE"; do
+  install -D -m644 "$tmp/OptiFine-1.8.9_HD_U_M5.jar" "$PRISM_DIR/instances/$i/libraries/OptiFine-1.8.9_HD_U_M5.jar"
+  install -D -m644 "$tmp/launchwrapper-of-2.2.jar" "$PRISM_DIR/instances/$i/libraries/launchwrapper-of-2.2.jar"
+done
+rm -rf "$tmp"
+# the client jar is not needed anymore (Prism downloads its own copy)
+rm -f "$C/client-1.8.9.jar"
+echo "OptiFine installed."

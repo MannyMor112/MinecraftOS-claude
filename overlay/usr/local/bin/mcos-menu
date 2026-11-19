@@ -1,0 +1,38 @@
+#!/bin/bash
+# Main text menu.
+. /usr/local/lib/mcos/common.sh
+net=$(have_net && echo "online" || echo "OFFLINE")
+acct=$(grep -qs '"type": *"MSA"' "$PRISM_DIR/accounts.json" && echo "signed in" || echo "NOT signed in")
+free=$(df -h --output=avail /data 2>/dev/null | tail -1 | tr -d ' ')
+c=$(dialog --stdout --backtitle "MinecraftOS $MCOS_VERSION   |   $net   |   $acct   |   USB free: $free" \
+  --title "Menu" --cancel-label "Power off" --menu "" 21 66 14 \
+  play    "Play Minecraft 1.8.9 + OptiFine" \
+  wifi    "Connect to Wi-Fi" \
+  login   "Sign in / Prism Launcher (accounts, settings)" \
+  bench   "Run ONE benchmark (~4 min)" \
+  suite1  "Run benchmark suite, quick (8 runs, ~35 min)" \
+  suite2  "Run benchmark suite, full (16 runs, ~70 min)" \
+  results "Show benchmark results" \
+  backup  "Back up saves from the internal drive (Lubuntu)" \
+  import  "Import backed-up saves into MinecraftOS" \
+  info    "System info (GPU, Wi-Fi, audio, temperatures)" \
+  install "Install MinecraftOS to the internal drive (ERASES IT)" \
+  shell   "Command line (type 'exit' to return)" \
+  reboot  "Reboot")
+[ $? -ne 0 ] && { clear; dialog --yesno "Power off?" 5 30 && sudo systemctl poweroff; exit 0; }
+case "$c" in
+  play) grep -qs '"type": *"MSA"' "$PRISM_DIR/accounts.json" || { mcos-firstrun; exit; }; mcos-optifine >/dev/null || true; mcos-play ;;
+  wifi) nmtui connect ;;
+  login) clear; mcos-x launcher > /tmp/prism.log 2>&1 ;;
+  bench) clear; mcos-bench; pause ;;
+  suite1) clear; mcos-bench-suite 1; pause ;;
+  suite2) clear; mcos-bench-suite 2; pause ;;
+  results) clear; mcos-bench-summary "$RESULTS" > /tmp/summary.txt 2>&1; { cat /tmp/summary.txt; echo; ls -t "$RESULTS" | grep -v -e csv -e tmp | head -30; } > /tmp/r.txt
+           dialog --title "Results in $RESULTS (USB partition MCOSDATA, folder results)" --textbox /tmp/r.txt 22 100 ;;
+  backup) clear; sudo mcos-backup-saves; pause ;;
+  import) clear; mcos-import-saves; pause ;;
+  info) clear; mcos-sysinfo > /tmp/info.txt 2>&1; dialog --title "System info (saved to $RESULTS/sysinfo.txt)" --textbox /tmp/info.txt 22 100; cp /tmp/info.txt "$RESULTS/sysinfo.txt" ;;
+  install) clear; sudo mcos-install; pause ;;
+  shell) clear; echo "Type 'exit' to return to the menu."; bash -l -i ;;
+  reboot) sudo systemctl reboot ;;
+esac

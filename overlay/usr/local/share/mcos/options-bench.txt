@@ -1,0 +1,14 @@
+renderDistance:6
+fancyGraphics:false
+ao:0
+enableVsync:false
+maxFps:260
+fullscreen:true
+renderClouds:false
+particles:1
+mipmapLevels:0
+useVbo:true
+fboEnable:true
+entityShadows:false
+pauseOnLostFocus:false
+guiScale:2

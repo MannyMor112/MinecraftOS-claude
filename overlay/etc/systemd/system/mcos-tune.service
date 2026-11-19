@@ -1,0 +1,10 @@
+[Unit]
+Description=MinecraftOS performance settings (from kernel command line mcos.* options)
+After=systemd-modules-load.service
+Before=getty@tty1.service
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/mcos-tune boot
+[Install]
+WantedBy=multi-user.target
