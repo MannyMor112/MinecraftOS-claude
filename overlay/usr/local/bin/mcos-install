@@ -11,7 +11,7 @@ LOWER=$(ls -d /run/live/rootfs/*.squashfs 2>/dev/null | head -1)
 usb=$(lsblk -no PKNAME "$(findmnt -no SOURCE $MEDIUM)" 2>/dev/null)
 
 echo "Disks that can be used (the USB stick you booted from is excluded):"; echo
-mapfile -t DISKS < <(lsblk -dnpo NAME,TYPE | awk '$2=="disk"{print $1}' | grep -v -e zram -e "/dev/$usb\$" -e boot -e rpmb)
+mapfile -t DISKS < <(lsblk -dnpbo NAME,TYPE,SIZE | awk '$2=="disk" && $3>4000000000 {print $1}' | grep -v -e zram -e /dev/fd -e "/dev/$usb\$" -e boot -e rpmb)
 [ ${#DISKS[@]} -gt 0 ] || die "No internal disk found."
 i=1; for d in "${DISKS[@]}"; do echo "  $i) $d  $(lsblk -dno SIZE,MODEL $d)"; lsblk -no NAME,SIZE,FSTYPE,LABEL $d | sed 's/^/        /'; i=$((i+1)); done
 echo; read -r -p "Number of the disk to ERASE and install to (Enter = cancel): " n

@@ -17,5 +17,17 @@ render distance 6, Fast, unlimited FPS). "all" means both phases combined, weigh
   vblank_mode=0, openbox.
 - Suite variables tested in v1: glthread, MESA_NO_ERROR, powersave governor, GPU min=max,
   SNA driver, ParallelGC, no WM. Separate reboots test mitigations ON and kernel 7.2.
+- ISO SHA256: `4e95a7d6d0c3d1e92fde41502fd30c66c462728fe8390a71afaf956c9b959c1c` (git tag `v1`).
+- Verified in VMs (QEMU, SeaBIOS + OVMF/UEFI):
+  - boots to first-time setup
+  - data partition grows to fill the stick
+  - X + openbox + Prism Launcher start, and the Microsoft sign-in page appears
+  - the installer partitions, copies and installs GRUB, and the installed disk boots
 - **Not yet verified on real hardware.** The game launch, the agent's automation and audio
   routing can only be tested on the Chromebook.
+
+### Fixed after v1 (goes into v2)
+- Installer: no longer lists tiny devices (floppy, < 4 GB) as install targets. Cosmetic: the
+  Chromebook has none.
+- Planned: add `zstd`, so the initramfs is zstd-compressed instead of gzip, for faster boot from
+  USB.
